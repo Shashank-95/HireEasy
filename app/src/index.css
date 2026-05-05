@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-app-region: no-drag;
+  }
+
+  body {
+    @apply bg-[#0f0f13] text-white font-sans;
+    overflow: hidden;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/20;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/[0.03] border border-white/[0.06] rounded-2xl backdrop-blur-xl;
+  }
+
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300 hover:bg-white/[0.06] hover:border-white/[0.1] hover:shadow-lg hover:shadow-brand-500/5;
+  }
+
+  .btn-primary {
+    @apply px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white font-medium rounded-xl transition-all duration-200 hover:shadow-lg hover:shadow-brand-500/25 active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 bg-white/[0.06] hover:bg-white/[0.1] text-white/80 font-medium rounded-xl border border-white/[0.08] transition-all duration-200 active:scale-[0.98];
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-brand-500/50 focus:ring-1 focus:ring-brand-500/20 transition-all duration-200;
+  }
+
+  .input-field-masked {
+    @apply input-field tracking-widest;
+    -webkit-text-security: disc;
+  }
+
+  .status-badge {
+    @apply px-3 py-1 rounded-full text-xs font-medium;
+  }
+
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+}

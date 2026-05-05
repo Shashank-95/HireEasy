@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+app/dist/
+app/dist-electron/
+interview-app/.next/
+interview-app/out/
+
+# Environment files
+.env
+.env.local
+.env.production
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# TypeScript build
+*.tsbuildinfo
+next-env.d.ts
+
+# Prisma
+app/prisma/*.db
+app/prisma/*.db-journal
+
+# Vercel
+interview-app/.vercel/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+Thumbs.db
+
+# Claude
+.claude/
+
+# Next.js cache
+app/.next/
