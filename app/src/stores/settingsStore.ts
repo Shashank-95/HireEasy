@@ -1,13 +1,14 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type LlmProvider = 'openai' | 'anthropic' | 'gemini'
+export type LlmProvider = 'openai' | 'anthropic' | 'gemini' | 'groq'
 export type AiDetectionProvider = 'sapling' | 'gptzero' | 'originality' | 'copyleaks'
 
 interface SettingsStore {
   openaiKey: string
   anthropicKey: string
   geminiKey: string
+  groqKey: string
   deepgramKey: string
   aiDetectionKey: string
   preferredLlm: LlmProvider
@@ -29,6 +30,7 @@ export const useSettingsStore = create<SettingsStore>()(
       openaiKey: '',
       anthropicKey: '',
       geminiKey: '',
+      groqKey: '',
       deepgramKey: '',
       aiDetectionKey: '',
       preferredLlm: 'openai',
@@ -48,7 +50,8 @@ export const useSettingsStore = create<SettingsStore>()(
         const hasLlmKey =
           (state.preferredLlm === 'openai' && state.openaiKey) ||
           (state.preferredLlm === 'anthropic' && state.anthropicKey) ||
-          (state.preferredLlm === 'gemini' && state.geminiKey)
+          (state.preferredLlm === 'gemini' && state.geminiKey) ||
+          (state.preferredLlm === 'groq' && state.groqKey)
         return !!hasLlmKey
       },
     }),

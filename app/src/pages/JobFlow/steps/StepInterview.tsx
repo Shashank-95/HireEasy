@@ -52,9 +52,25 @@ HR Team`
   const settings = useSettingsStore()
   const questionBank = useQuestionBankStore()
 
-  const shortlisted = job.candidates.filter(c => c.status === 'l2_shortlisted' || c.status === 'l1_shortlisted')
+  /** Candidates the recruiter has deselected on the confirm screen. */
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set())
+
+  const finalists = job.candidates.filter(c => c.status === 'l2_shortlisted' || c.status === 'l1_shortlisted')
+  /** Who actually receives an invite — excludes deselected candidates and anyone with no email. */
+  const shortlisted = finalists.filter(c => !excludedIds.has(c.id) && !!c.email?.trim())
+  const noEmailCount = finalists.filter(c => !c.email?.trim()).length
+
   const isAuthenticated = !!settings.googleTokens
   const availableSets = questionBank.getSetsForJob(job.id)
+
+  const toggleExcluded = (id: string) => {
+    setExcludedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (startDate && shortlisted.length > 0) {
@@ -159,8 +175,10 @@ HR Team`
             status: 'interview_scheduled',
           })
         } else {
-          // AI Interview — generate unique token and use Vercel app URL
-          const token = uuidv4().slice(0, 8)
+          // AI Interview — unique, unguessable token per candidate.
+          // Short tokens are enumerable, which would let anyone open someone
+          // else's interview and submit answers as them.
+          const token = uuidv4().replace(/-/g, '').slice(0, 20)
           meetingLink = interviewAppUrl
             ? `${interviewAppUrl}/interview?token=${token}&candidate=${encodeURIComponent(candidate.name)}`
             : `[Interview App URL not configured]`
@@ -524,6 +542,61 @@ HR Team`
         </div>
       )}
 
+      {/* Recipient review — sending email is irreversible, so let the recruiter
+          verify and deselect before anything leaves the outbox. */}
+      {!sent && (
+        <div className="glass-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-medium text-white/80">Recipients</h4>
+              <p className="text-[11px] text-white/30 mt-0.5">
+                Uncheck anyone who should not receive an invite
+              </p>
+            </div>
+            <span className="text-sm font-bold text-brand-400">{shortlisted.length}</span>
+          </div>
+          <div className="max-h-56 overflow-y-auto">
+            {finalists.map(c => {
+              const hasEmail = !!c.email?.trim()
+              const included = hasEmail && !excludedIds.has(c.id)
+              return (
+                <label
+                  key={c.id}
+                  className={`flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.03] transition-colors ${
+                    hasEmail ? 'cursor-pointer hover:bg-white/[0.03]' : 'opacity-40 cursor-not-allowed'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={included}
+                    disabled={!hasEmail || sending}
+                    onChange={() => toggleExcluded(c.id)}
+                    className="accent-brand-500 shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate">{c.name}</p>
+                    <p className="text-[11px] text-white/30 truncate">
+                      {hasEmail ? c.email : 'No email address — cannot be invited'}
+                    </p>
+                  </div>
+                  <span className="text-xs text-white/30 shrink-0">
+                    {c.finalScore ?? c.l2Score ?? c.l1Score ?? '—'}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+          {noEmailCount > 0 && (
+            <div className="px-4 py-2.5 bg-amber-500/5 border-t border-amber-500/15">
+              <p className="text-[11px] text-amber-400/80 flex items-center gap-1.5">
+                <AlertTriangle size={11} />
+                {noEmailCount} candidate{noEmailCount > 1 ? 's have' : ' has'} no email and will be skipped.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {sent ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -564,11 +637,15 @@ HR Team`
 
           <div className="flex justify-end gap-3">
             <button onClick={() => setStep('email')} className="btn-secondary" disabled={sending}>Back</button>
-            <button onClick={handleSendInvites} disabled={sending} className="btn-primary flex items-center gap-2">
+            <button
+              onClick={handleSendInvites}
+              disabled={sending || shortlisted.length === 0}
+              className="btn-primary flex items-center gap-2 disabled:opacity-30"
+            >
               {sending ? (
                 <><Loader2 size={16} className="animate-spin" /> Sending...</>
               ) : (
-                <><Send size={16} /> Send {shortlisted.length} Invites</>
+                <><Send size={16} /> Send {shortlisted.length} Invite{shortlisted.length === 1 ? '' : 's'}</>
               )}
             </button>
           </div>

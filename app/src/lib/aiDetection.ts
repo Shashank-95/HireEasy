@@ -112,43 +112,117 @@ async function detectWithCopyleaks(text: string, apiKey: string): Promise<AiDete
   }
 }
 
-export function heuristicAiDetection(texts: string[]): { suspiciousIndices: number[]; patterns: string[] } {
-  const patterns: string[] = []
-  const suspiciousIndices: number[] = []
+/** Phrases that are hallmarks of unedited LLM output in a job application. */
+const AI_TELLS = [
+  /\bi am (?:particularly )?(?:excited|thrilled|passionate) (?:about|to)\b/i,
+  /\bleverage (?:my|the)\b/i,
+  /\bdelve into\b/i,
+  /\bit'?s worth noting\b/i,
+  /\bin today'?s (?:fast-paced|ever-evolving|dynamic)\b/i,
+  /\ba testament to\b/i,
+  /\bnavigate the complexities\b/i,
+  /\bplays a (?:crucial|pivotal|vital) role\b/i,
+  /\bunderscore[sd]?\b/i,
+  /\bmeticulous(?:ly)?\b/i,
+  /\brobust (?:framework|solution|approach)\b/i,
+  /\bsynerg(?:y|ies|istic)\b/i,
+  /\bholistic approach\b/i,
+]
 
-  // Check for em-dash pattern (AI-typical)
-  const emDashCounts = texts.map(t => (t.match(/—/g) || []).length)
-  const avgEmDash = emDashCounts.reduce((a, b) => a + b, 0) / texts.length
-  if (avgEmDash > 2) {
-    patterns.push('High em-dash usage (AI indicator)')
+/**
+ * Cheap, deterministic AI-writing heuristics.
+ *
+ * Runs in O(n) — the previous implementation compared every candidate against
+ * every other one (O(n²) with set intersections), which locks the browser solid
+ * at 1000 candidates. Near-duplicate detection now uses a bucketed token
+ * signature instead of pairwise comparison.
+ */
+export function heuristicAiDetection(texts: string[]): {
+  suspiciousIndices: number[]
+  patterns: string[]
+  /** Per-candidate 0-100 suspicion score from local heuristics alone */
+  scores: number[]
+} {
+  const patterns: string[] = []
+  const suspicious = new Set<number>()
+  const scores = new Array(texts.length).fill(0)
+
+  // ── O(n) near-duplicate detection via token signature bucketing ──
+  // Two candidates who pasted the same answer land in the same bucket.
+  const buckets = new Map<string, number[]>()
+  for (let i = 0; i < texts.length; i++) {
+    const sig = tokenSignature(texts[i])
+    if (!sig) continue
+    const list = buckets.get(sig)
+    if (list) list.push(i)
+    else buckets.set(sig, [i])
+  }
+  for (const [, members] of buckets) {
+    if (members.length > 1) {
+      members.forEach(i => {
+        suspicious.add(i)
+        scores[i] += 35
+      })
+      patterns.push(`${members.length} candidates submitted near-identical answers`)
+    }
   }
 
-  // Check for thematic similarity
-  const wordSets = texts.map(t =>
-    new Set(t.toLowerCase().split(/\s+/).filter(w => w.length > 4))
-  )
+  // ── Per-candidate stylistic tells (all O(1) per candidate) ──
+  texts.forEach((text, i) => {
+    if (!text || text.trim().length < 40) return
 
-  for (let i = 0; i < texts.length; i++) {
-    for (let j = i + 1; j < texts.length; j++) {
-      const intersection = [...wordSets[i]].filter(w => wordSets[j].has(w))
-      const similarity = intersection.length / Math.min(wordSets[i].size, wordSets[j].size)
-      if (similarity > 0.6) {
-        if (!suspiciousIndices.includes(i)) suspiciousIndices.push(i)
-        if (!suspiciousIndices.includes(j)) suspiciousIndices.push(j)
-        patterns.push(`High thematic similarity between candidates ${i + 1} and ${j + 1}`)
+    // Em-dash density — AI models overuse them relative to typical applicants
+    const emDashes = (text.match(/—/g) || []).length
+    const per100Words = (emDashes / Math.max(1, text.split(/\s+/).length)) * 100
+    if (per100Words > 1.5) {
+      scores[i] += 15
+      suspicious.add(i)
+    }
+
+    // Uniformly long sentences
+    const sentences = text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0)
+    if (sentences.length >= 3) {
+      const lengths = sentences.map(s => s.split(/\s+/).length)
+      const avg = lengths.reduce((a, b) => a + b, 0) / lengths.length
+      if (avg > 26) {
+        scores[i] += 15
+        suspicious.add(i)
+      }
+      // Low variance in sentence length is a strong LLM signal — humans vary more
+      const variance = lengths.reduce((a, l) => a + (l - avg) ** 2, 0) / lengths.length
+      if (avg > 15 && Math.sqrt(variance) < 3.5) {
+        scores[i] += 12
+        suspicious.add(i)
       }
     }
-  }
 
-  // Check for overly formal/verbose patterns
-  texts.forEach((text, i) => {
-    const sentences = text.split(/[.!?]+/).filter(Boolean)
-    const avgLength = sentences.reduce((a, s) => a + s.trim().split(/\s+/).length, 0) / sentences.length
-    if (avgLength > 25) {
-      if (!suspiciousIndices.includes(i)) suspiciousIndices.push(i)
-      patterns.push(`Candidate ${i + 1}: Unusually long sentences (avg ${Math.round(avgLength)} words)`)
+    // Stock LLM phrasing
+    const tells = AI_TELLS.reduce((n, re) => n + (re.test(text) ? 1 : 0), 0)
+    if (tells >= 2) {
+      scores[i] += Math.min(30, tells * 12)
+      suspicious.add(i)
     }
+
+    // Perfectly formatted bullet lists in a free-text box
+    if ((text.match(/^\s*[-•*]\s+/gm) || []).length >= 4) {
+      scores[i] += 10
+    }
+
+    scores[i] = Math.min(100, scores[i])
   })
 
-  return { suspiciousIndices, patterns }
+  return { suspiciousIndices: [...suspicious], patterns, scores }
+}
+
+/** Stable signature of the most distinctive tokens, used for duplicate bucketing. */
+function tokenSignature(text: string): string {
+  if (!text || text.trim().length < 60) return ''
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 5)
+  if (words.length < 8) return ''
+  // Sorted unique tokens make the signature order-independent
+  return [...new Set(words)].sort().slice(0, 24).join('|')
 }

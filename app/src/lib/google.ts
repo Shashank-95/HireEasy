@@ -28,6 +28,70 @@ function getGoogleCreds() {
   }
 }
 
+// Refresh the access token using the saved refresh token
+async function refreshAccessToken(): Promise<string> {
+  const { clientId, clientSecret, tokens } = getGoogleCreds()
+  if (!tokens?.refresh_token) {
+    throw new Error('No refresh token available. Please re-authenticate with Google.')
+  }
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: tokens.refresh_token,
+      grant_type: 'refresh_token',
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`Token refresh failed: ${err.error_description || err.error || 'Please re-authenticate'}`)
+  }
+
+  const data = await res.json()
+  // Merge new access_token with existing tokens (refresh_token usually not returned)
+  const updatedTokens = {
+    ...tokens,
+    access_token: data.access_token,
+    expires_in: data.expires_in,
+    expiry_date: Date.now() + (data.expires_in * 1000),
+  }
+  useSettingsStore.getState().setKey('googleTokens', JSON.stringify(updatedTokens))
+  return data.access_token
+}
+
+// Make a Google API request with automatic token refresh on 401
+async function googleApiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const { tokens } = getGoogleCreds()
+  if (!tokens) throw new Error('Not authenticated with Google.')
+
+  const headers = {
+    ...(options.headers || {}),
+    Authorization: `Bearer ${tokens.access_token}`,
+  }
+
+  let res = await fetch(url, { ...options, headers })
+
+  // If unauthorized, refresh token and retry once
+  if (res.status === 401) {
+    try {
+      const newToken = await refreshAccessToken()
+      const retryHeaders = {
+        ...(options.headers || {}),
+        Authorization: `Bearer ${newToken}`,
+      }
+      res = await fetch(url, { ...options, headers: retryHeaders })
+    } catch (refreshErr: any) {
+      throw new Error(`Authentication expired. ${refreshErr.message}`)
+    }
+  }
+
+  return res
+}
+
 export async function authenticateGoogle(): Promise<{ email: string }> {
   const { clientId, clientSecret } = getGoogleCreds()
   if (!clientId || !clientSecret) {
@@ -166,9 +230,8 @@ export async function parseGoogleSheet(sheetUrl: string): Promise<{ rows: string
   const targetGid = gidMatch ? parseInt(gidMatch[1]) : 0
 
   // First, get the spreadsheet metadata to find the correct sheet name
-  const metaRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets(properties(sheetId,title))`,
-    { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+  const metaRes = await googleApiFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets(properties(sheetId,title))`
   )
 
   if (!metaRes.ok) {
@@ -185,9 +248,8 @@ export async function parseGoogleSheet(sheetUrl: string): Promise<{ rows: string
   const sheetTitle = targetSheet?.properties?.title || 'Sheet1'
 
   // Now fetch the actual data using the correct sheet name
-  const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetTitle)}`,
-    { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+  const res = await googleApiFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetTitle)}`
   )
 
   if (!res.ok) {
@@ -223,12 +285,9 @@ export async function sendEmail(to: string, subject: string, body: string): Prom
     .replace(/\//g, '_')
     .replace(/=+$/, '')
 
-  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+  const res = await googleApiFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${tokens.access_token}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ raw: encodedMessage }),
   })
 
@@ -279,14 +338,11 @@ export async function createCalendarEvent(event: CalendarEventParams): Promise<{
     }
   }
 
-  const res = await fetch(
+  const res = await googleApiFetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=${event.createMeetLink ? 1 : 0}&sendUpdates=all`,
     {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(calendarEvent),
     }
   )

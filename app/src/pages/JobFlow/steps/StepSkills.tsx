@@ -1,6 +1,9 @@
-import { useState } from 'react'
-import { Plus, X, GripVertical, Sliders, AlertCircle } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, X, GripVertical, Sliders, AlertCircle, Sparkles, Loader2, RefreshCw } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { Job, Skill, useJobStore } from '../../../stores/jobStore'
+import { useSettingsStore } from '../../../stores/settingsStore'
+import { extractSkillsFromJD } from '../../../lib/llm'
 import { v4 as uuidv4 } from 'uuid'
 
 interface Props {
@@ -108,10 +111,65 @@ function SkillSection({ title, subtitle, skills, type, required, showWarning, on
 
 export default function StepSkills({ job, onNext }: Props) {
   const { updateJob } = useJobStore()
+  const settings = useSettingsStore()
   const [techSkills, setTechSkills] = useState<Skill[]>(job.technicalSkills)
   const [nonTechSkills, setNonTechSkills] = useState<Skill[]>(job.nonTechSkills)
   const [behavioralSkills, setBehavioralSkills] = useState<Skill[]>(job.behavioralSkills)
   const [attempted, setAttempted] = useState(false)
+  const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState('')
+  const [extractedNotice, setExtractedNotice] = useState(false)
+  const autoExtractAttempted = useRef(false)
+
+  const handleExtractSkills = async (force = false) => {
+    if (!job.description || job.description.trim().length < 50) {
+      setExtractError('Job description is too short to extract skills accurately. Please upload a JD first.')
+      return
+    }
+    if (!settings.isConfigured()) {
+      setExtractError('Configure an LLM provider in Settings first.')
+      return
+    }
+
+    // If force=false and skills already exist, don't overwrite
+    if (!force && (techSkills.length > 0 || nonTechSkills.length > 0)) return
+
+    setExtracting(true)
+    setExtractError('')
+
+    try {
+      const extracted = await extractSkillsFromJD(job.title, job.description, job.department)
+
+      const toSkill = (s: { name: string; weight: number }, type: Skill['type']): Skill => ({
+        id: uuidv4(),
+        name: s.name,
+        weight: s.weight,
+        type,
+      })
+
+      setTechSkills(extracted.technical.map(s => toSkill(s, 'technical')))
+      setNonTechSkills(extracted.nonTechnical.map(s => toSkill(s, 'non-technical')))
+      setBehavioralSkills(extracted.behavioral.map(s => toSkill(s, 'behavioral')))
+      setExtractedNotice(true)
+    } catch (err: any) {
+      console.error('Skill extraction failed:', err)
+      setExtractError(err.message || 'Failed to extract skills from JD. You can add them manually.')
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  // Auto-extract on first mount if skills are empty AND we have a JD
+  useEffect(() => {
+    if (autoExtractAttempted.current) return
+    if (techSkills.length > 0 || nonTechSkills.length > 0 || behavioralSkills.length > 0) return
+    if (!job.description || job.description.trim().length < 50) return
+    if (!settings.isConfigured()) return
+
+    autoExtractAttempted.current = true
+    handleExtractSkills(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const addSkill = (type: 'technical' | 'non-technical' | 'behavioral') => {
     const newSkill: Skill = { id: uuidv4(), name: '', weight: 25, type }
@@ -163,12 +221,76 @@ export default function StepSkills({ job, onNext }: Props) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-white mb-2">Skills & Weightage</h2>
-        <p className="text-sm text-white/40">
-          Define the skills required for this role and assign weights. Each section must total exactly 100%.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white mb-2">Skills & Weightage</h2>
+          <p className="text-sm text-white/40">
+            Define the skills required for this role and assign weights. Each section must total exactly 100%.
+          </p>
+        </div>
+        {job.description && job.description.trim().length > 50 && settings.isConfigured() && (
+          <button
+            onClick={() => handleExtractSkills(true)}
+            disabled={extracting}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/20 text-brand-300 transition-all disabled:opacity-50 shrink-0"
+            title="Re-suggest skills from the job description"
+          >
+            {extracting ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+            {extracting ? 'Analyzing JD…' : 'Re-suggest from JD'}
+          </button>
+        )}
       </div>
+
+      {/* Extraction in progress */}
+      {extracting && techSkills.length === 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-6 flex items-center gap-4"
+        >
+          <div className="w-10 h-10 rounded-xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center shrink-0">
+            <Sparkles size={18} className="text-brand-400 animate-pulse" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-white">Analyzing job description...</p>
+            <p className="text-xs text-white/40 mt-0.5">
+              AI is extracting the most critical technical, non-technical, and behavioral skills with weighted importance.
+            </p>
+          </div>
+          <Loader2 size={16} className="text-brand-400 animate-spin" />
+        </motion.div>
+      )}
+
+      {/* Extraction success notice */}
+      {extractedNotice && !extracting && (techSkills.length > 0 || nonTechSkills.length > 0) && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-start gap-3 p-4 rounded-xl bg-brand-500/[0.06] border border-brand-500/20"
+        >
+          <Sparkles size={16} className="text-brand-400 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm text-brand-200">Skills auto-extracted from your job description</p>
+            <p className="text-xs text-white/40 mt-0.5">
+              Weights reflect each skill's importance based on the JD. Edit, add, or remove skills as needed — your customization will be saved.
+            </p>
+          </div>
+          <button
+            onClick={() => setExtractedNotice(false)}
+            className="text-white/30 hover:text-white/60 transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </motion.div>
+      )}
+
+      {/* Extraction error */}
+      {extractError && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+          <AlertCircle size={14} className="text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-400">{extractError}</p>
+        </div>
+      )}
 
       <SkillSection
         title="Critical Technical Skills"

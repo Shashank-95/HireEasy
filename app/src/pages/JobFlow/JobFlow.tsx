@@ -12,8 +12,8 @@ import StepFinalShortlist from './steps/StepFinalShortlist'
 import StepInterview from './steps/StepInterview'
 
 const STEPS = [
-  { id: 0, label: 'Google Sheet' },
-  { id: 1, label: 'Job Description' },
+  { id: 0, label: 'Import' },
+  { id: 1, label: 'JD & Criteria' },
   { id: 2, label: 'Skills & Weights' },
   { id: 3, label: 'L1 Screening' },
   { id: 4, label: 'L1 Results' },

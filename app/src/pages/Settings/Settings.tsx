@@ -56,10 +56,11 @@ function ApiKeyInput({ label, value, onChange, placeholder, helpUrl, helpText }:
 export default function Settings() {
   const settings = useSettingsStore()
 
-  const llmOptions: { value: LlmProvider; label: string; description: string }[] = [
-    { value: 'openai', label: 'OpenAI', description: 'GPT-4o for screening and scoring' },
-    { value: 'anthropic', label: 'Anthropic Claude', description: 'Claude for nuanced evaluation' },
-    { value: 'gemini', label: 'Google Gemini', description: 'Gemini Pro for analysis' },
+  const llmOptions: { value: LlmProvider; label: string; description: string; badge?: 'FREE' | 'PAID' }[] = [
+    { value: 'gemini', label: 'Google Gemini', description: 'Gemini 2.0 Flash · 1,500 requests/day', badge: 'FREE' },
+    { value: 'groq', label: 'Groq', description: 'Llama 3.3 70B · 6,000 requests/day · 10x faster', badge: 'FREE' },
+    { value: 'openai', label: 'OpenAI', description: 'GPT-4o-mini · usage-based pricing', badge: 'PAID' },
+    { value: 'anthropic', label: 'Anthropic Claude', description: 'Claude · usage-based pricing', badge: 'PAID' },
   ]
 
   const aiDetectionOptions: { value: AiDetectionProvider; label: string; description: string; free: boolean }[] = [
@@ -89,7 +90,7 @@ export default function Settings() {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 mb-5">
+          <div className="grid grid-cols-2 gap-3 mb-5">
             {llmOptions.map(opt => (
               <button
                 key={opt.value}
@@ -100,7 +101,20 @@ export default function Settings() {
                     : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
                 }`}
               >
-                <p className="text-sm font-medium text-white">{opt.label}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-white">{opt.label}</p>
+                  {opt.badge && (
+                    <span
+                      className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                        opt.badge === 'FREE'
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : 'bg-amber-500/20 text-amber-400'
+                      }`}
+                    >
+                      {opt.badge}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-white/40 mt-1">{opt.description}</p>
               </button>
             ))}
@@ -134,7 +148,17 @@ export default function Settings() {
                 onChange={(v) => settings.setKey('geminiKey', v)}
                 placeholder="AI..."
                 helpUrl="https://aistudio.google.com/apikey"
-                helpText="Go to AI Studio → Get API Key → Create API Key in new project"
+                helpText="Go to AI Studio → Get API Key → Create API Key in new project (free)"
+              />
+            )}
+            {settings.preferredLlm === 'groq' && (
+              <ApiKeyInput
+                label="Groq API Key"
+                value={settings.groqKey}
+                onChange={(v) => settings.setKey('groqKey', v)}
+                placeholder="gsk_..."
+                helpUrl="https://console.groq.com/keys"
+                helpText="Go to console.groq.com → Sign in → API Keys → Create API Key (free, no credit card)"
               />
             )}
           </div>

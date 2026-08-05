@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import { v4 as uuidv4 } from 'uuid'
+import { idbStorage } from '../lib/idbStorage'
 
 export interface QuestionTemplate {
   id: string
@@ -64,6 +65,7 @@ export const useQuestionBankStore = create<QuestionBankStore>()(
     }),
     {
       name: 'hireeasy-question-bank',
+      storage: createJSONStorage(() => idbStorage),
     }
   )
 )

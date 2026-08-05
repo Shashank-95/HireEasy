@@ -112,22 +112,146 @@ export function parseSheetData(rawData: string[][]): SheetData {
   return { headers, rows, rawRows: dataRows }
 }
 
-export function identifyKeyColumns(headers: string[]): {
+/**
+ * Scored matcher. Each rule is [regex, score]; the highest-scoring header wins.
+ *
+ * Scoring beats naive `includes()` because form headers overlap heavily:
+ * "LinkedIn Profile" would match a plain `includes('link')` resume rule, and
+ * "Name of your current company" would match `includes('name')`. Negative rules
+ * let us actively push those away from the wrong field.
+ */
+type Rule = [RegExp, number]
+
+const FIELD_RULES: Record<string, Rule[]> = {
+  name: [
+    [/^(full\s*)?name$/i, 100],
+    [/^candidate\s*name/i, 95],
+    [/your\s*name/i, 90],
+    [/first\s*name/i, 70],
+    [/\bname\b/i, 40],
+    // Push away from company/college/referrer names
+    [/company|organis|organiz|college|university|school|referr|manager|project/i, -100],
+  ],
+  email: [
+    [/^e-?mail(\s*(id|address))?$/i, 100],
+    [/e-?mail/i, 80],
+    [/\bmail\s*id\b/i, 70],
+  ],
+  phone: [
+    [/^(phone|mobile|contact)(\s*(no|number))?$/i, 100],
+    [/phone|mobile\s*(no|number)/i, 80],
+    [/whatsapp/i, 60],
+    [/contact\s*(no|number)/i, 70],
+    [/emergency/i, -60],
+  ],
+  resume: [
+    [/^resume$/i, 100],
+    [/resume|curriculum\s*vitae/i, 90],
+    [/\bcv\b/i, 80],
+    [/upload.*(resume|cv)/i, 95],
+    // LinkedIn/portfolio are NOT resumes
+    [/linkedin|github|portfolio|behance|dribbble|website|twitter/i, -100],
+  ],
+  ctc: [
+    [/expected\s*(ctc|salary|compensation|package)/i, 100],
+    [/\bctc\b/i, 75],
+    [/salary\s*expect/i, 95],
+    [/expected.*(pay|remuneration)/i, 85],
+    [/desired\s*(salary|compensation)/i, 90],
+    [/\b(lpa|package)\b/i, 55],
+    // Current CTC is a weaker signal than expected CTC but still usable
+    [/current\s*(ctc|salary)/i, 45],
+  ],
+  experience: [
+    [/(total|overall|years?\s*of)\s*experience/i, 100],
+    [/^experience/i, 90],
+    [/\bexperience\b/i, 60],
+    [/\byears?\s*(in|of)\b/i, 55],
+    [/relevant\s*experience/i, 85],
+    // "Describe your experience with X" is a response, not a number
+    [/describe|tell us|explain|share|elaborate|example/i, -100],
+  ],
+  noticePeriod: [
+    [/notice\s*period/i, 100],
+    [/\bnotice\b/i, 80],
+    [/how\s*soon.*join/i, 85],
+    [/joining\s*(time|date|availab)/i, 80],
+    [/availability\s*to\s*(join|start)/i, 85],
+    [/last\s*working\s*day/i, 70],
+  ],
+  location: [
+    [/current\s*(location|city)/i, 100],
+    [/^(location|city)$/i, 95],
+    [/preferred\s*(location|city)/i, 85],
+    [/base[d]?\s*(in|location)/i, 80],
+    [/\b(location|city)\b/i, 55],
+    [/relocat/i, 50],
+  ],
+}
+
+function scoreHeader(header: string, rules: Rule[]): number {
+  let score = 0
+  for (const [re, points] of rules) {
+    if (re.test(header)) score += points
+  }
+  return score
+}
+
+export interface KeyColumns {
   nameColumn: string | null
   emailColumn: string | null
   phoneColumn: string | null
   resumeColumn: string | null
+  ctcColumn: string | null
+  experienceColumn: string | null
+  noticePeriodColumn: string | null
+  locationColumn: string | null
   responseColumns: string[]
-} {
-  const lower = headers.map(h => h.toLowerCase())
+}
 
-  const nameColumn = headers[lower.findIndex(h => h.includes('name'))] || null
-  const emailColumn = headers[lower.findIndex(h => h.includes('email') || h.includes('mail'))] || null
-  const phoneColumn = headers[lower.findIndex(h => h.includes('phone') || h.includes('mobile') || h.includes('contact'))] || null
-  const resumeColumn = headers[lower.findIndex(h => h.includes('resume') || h.includes('cv') || h.includes('link'))] || null
+export function identifyKeyColumns(headers: string[]): KeyColumns {
+  const claimed = new Set<string>()
 
-  const metaColumns = new Set([nameColumn, emailColumn, phoneColumn, resumeColumn].filter(Boolean))
-  const responseColumns = headers.filter(h => !metaColumns.has(h) && !h.toLowerCase().includes('timestamp'))
+  /** Pick the best-scoring unclaimed header for a field. */
+  const pick = (field: keyof typeof FIELD_RULES): string | null => {
+    let best: { header: string; score: number } | null = null
+    for (const h of headers) {
+      if (claimed.has(h)) continue
+      const score = scoreHeader(h, FIELD_RULES[field])
+      if (score > 0 && (!best || score > best.score)) {
+        best = { header: h, score }
+      }
+    }
+    if (best) {
+      claimed.add(best.header)
+      return best.header
+    }
+    return null
+  }
 
-  return { nameColumn, emailColumn, phoneColumn, resumeColumn, responseColumns }
+  // Order matters: the most specific / highest-confidence fields claim first
+  const emailColumn = pick('email')
+  const nameColumn = pick('name')
+  const phoneColumn = pick('phone')
+  const resumeColumn = pick('resume')
+  const ctcColumn = pick('ctc')
+  const experienceColumn = pick('experience')
+  const noticePeriodColumn = pick('noticePeriod')
+  const locationColumn = pick('location')
+
+  const responseColumns = headers.filter(
+    h => !claimed.has(h) && !/timestamp|submission\s*(id|time)|^id$/i.test(h)
+  )
+
+  return {
+    nameColumn,
+    emailColumn,
+    phoneColumn,
+    resumeColumn,
+    ctcColumn,
+    experienceColumn,
+    noticePeriodColumn,
+    locationColumn,
+    responseColumns,
+  }
 }
