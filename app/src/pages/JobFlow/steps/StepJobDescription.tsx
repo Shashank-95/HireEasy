@@ -3,7 +3,7 @@ import { FileText, Upload, CheckCircle2, X, File, Type, SlidersHorizontal, Alert
 import { Job, ScreeningCriteria, DEFAULT_CRITERIA, useJobStore } from '../../../stores/jobStore'
 import { extractTextFromPdf } from '../../../lib/pdfParser'
 import { evaluateCriteria, FILTER_LABELS } from '../../../lib/screeningFilters'
-import { formatCtc } from '../../../lib/candidateParsing'
+import { formatCtc, formatExperience, formatNotice } from '../../../lib/candidateParsing'
 
 interface Props {
   job: Job
@@ -26,16 +26,26 @@ export default function StepJobDescription({ job, onNext }: Props) {
     updateJob(job.id, { screeningCriteria: { ...criteria, ...patch } })
   }
 
-  // What data do we actually have to filter on?
+  // Coverage AND actual range of each attribute. Showing the real distribution
+  // stops the recruiter setting a threshold that silently excludes everyone —
+  // e.g. asking for 3+ years when the form's dropdown caps at "2+ years".
   const coverage = useMemo(() => {
     const c = job.candidates
     if (c.length === 0) return null
+    const range = (vals: number[]) => {
+      if (vals.length === 0) return null
+      const s = [...vals].sort((a, b) => a - b)
+      return { min: s[0], median: s[Math.floor(s.length / 2)], max: s[s.length - 1] }
+    }
     return {
       total: c.length,
       ctc: c.filter(x => x.ctcExpected !== undefined).length,
       exp: c.filter(x => x.experienceYears !== undefined).length,
       notice: c.filter(x => x.noticePeriodDays !== undefined).length,
       location: c.filter(x => x.location).length,
+      ctcRange: range(c.map(x => x.ctcExpected).filter((v): v is number => v !== undefined)),
+      expRange: range(c.map(x => x.experienceYears).filter((v): v is number => v !== undefined)),
+      noticeRange: range(c.map(x => x.noticePeriodDays).filter((v): v is number => v !== undefined)),
     }
   }, [job.candidates])
 
@@ -263,7 +273,10 @@ export default function StepJobDescription({ job, onNext }: Props) {
             {/* Budget */}
             <CriteriaRow
               label="Maximum budget (CTC)"
-              hint={coverage ? `${coverage.ctc}/${coverage.total} candidates have CTC data` : undefined}
+              hint={coverage
+                ? `${coverage.ctc}/${coverage.total} have CTC data` +
+                  (coverage.ctcRange ? ` · pool ranges ${formatCtc(coverage.ctcRange.min)} – ${formatCtc(coverage.ctcRange.max)}, median ${formatCtc(coverage.ctcRange.median)}` : '')
+                : undefined}
               warn={!!coverage && coverage.ctc === 0}
               warnText="No CTC column mapped — this filter will not apply. Map it in the previous step."
             >
@@ -287,7 +300,10 @@ export default function StepJobDescription({ job, onNext }: Props) {
             {/* Experience band */}
             <CriteriaRow
               label="Experience range"
-              hint={coverage ? `${coverage.exp}/${coverage.total} candidates have experience data` : undefined}
+              hint={coverage
+                ? `${coverage.exp}/${coverage.total} have experience data` +
+                  (coverage.expRange ? ` · pool ranges ${formatExperience(coverage.expRange.min)} – ${formatExperience(coverage.expRange.max)}` : '')
+                : undefined}
               warn={!!coverage && coverage.exp === 0}
               warnText="No experience column mapped — this filter will not apply."
             >
@@ -318,7 +334,10 @@ export default function StepJobDescription({ job, onNext }: Props) {
             {/* Notice period */}
             <CriteriaRow
               label="Maximum notice period"
-              hint={coverage ? `${coverage.notice}/${coverage.total} candidates have notice data` : undefined}
+              hint={coverage
+                ? `${coverage.notice}/${coverage.total} have notice data` +
+                  (coverage.noticeRange ? ` · pool ranges ${formatNotice(coverage.noticeRange.min)} – ${formatNotice(coverage.noticeRange.max)}` : '')
+                : undefined}
               warn={!!coverage && coverage.notice === 0}
               warnText="No notice period column mapped — this filter will not apply."
             >

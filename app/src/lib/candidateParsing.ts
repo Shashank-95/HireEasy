@@ -39,33 +39,63 @@ function extractNumber(s: string): number | null {
  *   - 7+ digit raw number                      → absolute rupees, convert to LPA
  *   - Bare number under 100                    → assume LPA (most common form response)
  */
+/**
+ * Currencies other than INR. We deliberately refuse to guess a conversion —
+ * a wrong CTC actively disqualifies a good candidate, whereas an unknown CTC
+ * never fails a filter. Silent mis-conversion is the worse failure mode.
+ */
+const FOREIGN_CURRENCY = /\$|usd|dollar|€|eur\b|£|gbp|pound|aed|dirham|naira|ngn|sgd|cad|aud|myr|ringgit|peso|rand|zar|yen|jpy|won|krw|฿|baht|dhs/i
+
+/** Plausible annual CTC band for a salaried role, in LPA. Outside this, we don't trust the parse. */
+const MIN_PLAUSIBLE_LPA = 0.5   // ₹50k/year
+const MAX_PLAUSIBLE_LPA = 2000  // ₹20 crore/year
+
 export function parseCtcToLPA(raw: string | undefined): number | undefined {
   if (!raw) return undefined
   const s = clean(raw)
   if (!s) return undefined
 
-  // Non-numeric answers we can't filter on
-  if (/negotiable|as per|open|flexible|discuss|n\/?a|not applicable/.test(s) && !/\d/.test(s)) {
+  // Free-text answers we can't filter on ("negotiable", "as per company norms")
+  if (/negotiable|as per|open to|flexible|discuss|n\/?a|not applicable/.test(s) && !/\d/.test(s)) {
     return undefined
   }
+
+  // Non-INR amounts: refuse rather than guess an exchange rate
+  if (FOREIGN_CURRENCY.test(raw)) return undefined
 
   const n = extractNumber(s)
   if (n === null || n <= 0) return undefined
 
-  const hasLakh = /lpa|lac|lakh|lakhs|\bl\b|\dl\b/.test(s)
-  const hasCrore = /cr\b|crore/.test(s)
+  const hasLakh = /lpa|lac\b|lakh|lakhs|\bl\b|\dl\b/.test(s)
+  const hasCrore = /\bcr\b|crore/.test(s)
   const hasK = /\dk\b|\bk\b/.test(s)
-  const hasMonth = /per month|\/month|pm\b|monthly/.test(s)
+  const hasMonth = /per month|\/month|\bpm\b|monthly/.test(s)
 
-  if (hasCrore) return n * 100
-  if (hasLakh) return n
-  if (hasMonth) return (n * 12) / 100000   // monthly rupees → LPA
-  if (hasK) return (n * 1000) / 100000     // thousands → LPA
+  let lpa: number
+  if (hasCrore) {
+    lpa = n * 100
+  } else if (hasLakh) {
+    // People routinely write the ABSOLUTE rupee figure and still tag it "LPA"
+    // ("13,00,000 LPA", "1600000 Lakh rupees"). Treat implausibly large
+    // "lakh" figures as absolute rupees instead of taking them at face value.
+    lpa = n > MAX_PLAUSIBLE_LPA ? n / 100000 : n
+  } else if (hasMonth) {
+    lpa = (n * 12) / 100000
+  } else if (hasK) {
+    lpa = (n * 1000) / 100000
+  } else if (n >= 100000) {
+    lpa = n / 100000          // 1500000 → 15 LPA
+  } else if (n >= 1000) {
+    // 10000-99999 is ambiguous: could be a monthly figure or a typo.
+    // Assume monthly, then let the plausibility gate below reject it if absurd.
+    lpa = (n * 12) / 100000
+  } else {
+    lpa = n                   // 12 → 12 LPA
+  }
 
-  // Bare numbers: decide by magnitude
-  if (n >= 100000) return n / 100000       // 1500000 → 15 LPA
-  if (n >= 1000) return n / 100000         // 90000 → 0.9 LPA (likely monthly, but keep literal)
-  return n                                  // 12 → 12 LPA
+  // Final sanity gate — anything outside a believable salary band is a bad parse
+  if (lpa < MIN_PLAUSIBLE_LPA || lpa > MAX_PLAUSIBLE_LPA) return undefined
+  return Math.round(lpa * 100) / 100
 }
 
 /** Parse total years of experience. Handles "3 yrs 6 months", "Fresher", ranges. */

@@ -19,6 +19,7 @@ import {
   evaluateEffort,
   buildFingerprintIndex,
 } from '../screeningFilters.ts'
+import { identifyKeyColumns, isNoiseColumn } from '../googleSheets.ts'
 
 let failures = 0
 let passes = 0
@@ -150,6 +151,69 @@ check('duplicate detected', evaluateEffort(dupA, index).failures.includes('dupli
 check('unique not flagged', evaluateEffort(unique, index).failures.includes('duplicate'), false)
 check('empty responses', evaluateEffort(mk({ responses: {} }), index).failures.includes('no_responses'), true)
 check('too short', evaluateEffort(mk({ responses: { q: 'yes' } }), index).failures.includes('insufficient_content'), true)
+
+// ─────────────── Real-world sheet regressions ───────────────
+// These come from a live 1553-applicant Typeform export.
+
+// CTC unit confusion: absolute rupees written with a "lakh"/"LPA" suffix
+check('CTC "1600000 Lakh rupees"', parseCtcToLPA('1600000 Lakh rupees'), 16)
+check('CTC "13,00,000 LPA"', parseCtcToLPA('13,00,000 LPA'), 13)
+check('CTC "1000000 Lacs Per Annum"', parseCtcToLPA('1000000 Lacs Per Annum'), 10)
+check('CTC "650000 LPA"', parseCtcToLPA('650000 LPA'), 6.5)
+
+// Foreign currency: refuse rather than mis-convert. A wrong CTC disqualifies a
+// good candidate; an unknown CTC never fails a filter.
+check('CTC "$3000" → unknown', parseCtcToLPA('$3000'), undefined)
+check('CTC "$4,801 per year." → unknown', parseCtcToLPA('$4,801 per year.'), undefined)
+check('CTC "12,000,000 naira" → unknown', parseCtcToLPA('12,000,000 naira'), undefined)
+check('CTC "45000 AED" → unknown', parseCtcToLPA('45000 AED'), undefined)
+
+// Implausible values are rejected rather than silently wrong
+check('CTC "0" → unknown', parseCtcToLPA('0'), undefined)
+check('CTC "na" → unknown', parseCtcToLPA('na'), undefined)
+check('CTC "As per company norms" → unknown', parseCtcToLPA('As per company norms'), undefined)
+check('CTC "9000000" → 90 LPA', parseCtcToLPA('9000000'), 90)
+
+// Banded dropdown answers
+check('EXP "2+ years"', parseExperienceYears('2+ years'), 2)
+check('EXP "0-1 years"', parseExperienceYears('0-1 years'), 0.5)
+check('EXP "1-2 years"', parseExperienceYears('1-2 years'), 1.5)
+check('NOTICE "15-30 days"', parseNoticePeriodDays('15-30 days'), 22.5)
+
+// Noise-column detection must not swallow real screening questions.
+// Regression: "a senior stakeholder completely disagrees" matched a bare
+// /agree/ rule and silently dropped an entire question for every candidate.
+const longQuestion =
+  'You strongly believe a new engagement feature must go live before a major cricket tournament, but a senior stakeholder completely disagrees on its priority. How do you handle it?'
+check('long question is NOT noise', isNoiseColumn(longQuestion), false)
+check('"Token" is noise', isNoiseColumn('Token'), true)
+check('"Submitted At" is noise', isNoiseColumn('Submitted At'), true)
+check('"Current Salary/Pay (annual)" is noise', isNoiseColumn('Current Salary/Pay (annual)'), true)
+check('"LinkedIn Profile / Portfolio Link" is noise', isNoiseColumn('LinkedIn Profile / Portfolio Link'), true)
+check('"Where did you hear about this position?" is noise', isNoiseColumn('Where did you hear about this position?'), true)
+
+// Column detection against the real header set
+const realHeaders = [
+  'Name', 'Email Address', 'Which Country are you applying from?', 'Phone Number',
+  'Total Experience', 'Name of Institute, Course & Passing out year.',
+  longQuestion, 'Current Company', 'Current Salary/Pay (annual)',
+  'Expected Salary/Pay (annual)', 'How soon can you join? ',
+  'Where did you hear about this position?', 'LinkedIn Profile / Portfolio Link',
+  'Please upload your resume.', 'Submitted At', 'Token',
+]
+const detected = identifyKeyColumns(realHeaders)
+check('detect name', detected.nameColumn, 'Name')
+check('detect email', detected.emailColumn, 'Email Address')
+check('detect phone', detected.phoneColumn, 'Phone Number')
+// Must pick the resume upload, NOT the LinkedIn/portfolio link
+check('detect resume (not LinkedIn)', detected.resumeColumn, 'Please upload your resume.')
+// Must pick EXPECTED salary, not CURRENT
+check('detect expected CTC (not current)', detected.ctcColumn, 'Expected Salary/Pay (annual)')
+check('detect experience', detected.experienceColumn, 'Total Experience')
+check('detect notice', detected.noticePeriodColumn, 'How soon can you join? ')
+check('detect country as location', detected.locationColumn, 'Which Country are you applying from?')
+check('screening question survives filtering', detected.responseColumns.includes(longQuestion), true)
+check('token excluded from AI input', detected.responseColumns.includes('Token'), false)
 
 console.log(
   failures === 0

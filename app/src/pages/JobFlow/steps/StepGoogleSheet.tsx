@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Job, Candidate, ColumnMapping, useJobStore } from '../../../stores/jobStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { authenticateGoogle, parseGoogleSheet } from '../../../lib/google'
-import { parseSheetData, identifyKeyColumns } from '../../../lib/googleSheets'
+import { parseSheetData, identifyKeyColumns, isNoiseColumn } from '../../../lib/googleSheets'
 import { parseCtcToLPA, parseExperienceYears, parseNoticePeriodDays, formatCtc, formatExperience, formatNotice } from '../../../lib/candidateParsing'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -110,7 +110,7 @@ export default function StepGoogleSheet({ job, onNext }: Props) {
       [m.name, m.email, m.phone, m.resume, m.ctc, m.experience, m.noticePeriod, m.location].filter(Boolean) as string[]
     )
     const responseColumns = hdrs.filter(
-      h => !assigned.has(h) && !m.ignoredColumns.includes(h) && !/timestamp|submission\s*(id|time)|^id$/i.test(h)
+      h => !assigned.has(h) && !m.ignoredColumns.includes(h) && !isNoiseColumn(h)
     )
 
     const candidates: Candidate[] = rows.map(row => {

@@ -181,12 +181,54 @@ const FIELD_RULES: Record<string, Rule[]> = {
   ],
   location: [
     [/current\s*(location|city)/i, 100],
-    [/^(location|city)$/i, 95],
+    [/^(location|city|country)$/i, 95],
     [/preferred\s*(location|city)/i, 85],
+    [/(which|what)\s*(country|city|location)/i, 90],
+    [/applying\s*from/i, 88],
     [/base[d]?\s*(in|location)/i, 80],
-    [/\b(location|city)\b/i, 55],
+    [/\b(location|city|country)\b/i, 55],
     [/relocat/i, 50],
   ],
+}
+
+/**
+ * Metadata columns that shouldn't be sent to the LLM as screening answers.
+ * A random 32-char submission token is pure noise, and "where did you hear
+ * about us" says nothing about fit — both waste tokens and dilute the signal.
+ */
+const NOISE_EXACT = /^(timestamp|submitted\s*at|submission\s*(id|time|date)|token|id|uuid|row\s*(id|number)?|status|score|source)$/i
+
+const NOISE_PHRASE = [
+  /where did you (hear|find)/i,
+  /how did you (hear|find)/i,
+  /\breferr(al|ed)\s*by\b/i,
+  /current\s*(company|employer|salary|ctc|organisation|organization)/i,
+  /\blinkedin\b/i,
+  /\bgithub\b/i,
+  /\bportfolio\b/i,
+  /\bconsent\b/i,
+  /\bi\s+agree\b/i,          // word-anchored: plain "agree" matches "disagrees"
+  /\bterms\s*(and|&)\s*conditions\b/i,
+  /\bprivacy\s*policy\b/i,
+  /\bdeclaration\b/i,
+]
+
+/**
+ * Real screening questions are long-form prose; metadata headers are short
+ * labels. This length guard stops a keyword buried inside a 200-character
+ * scenario question from disqualifying it — e.g. "a senior stakeholder
+ * completely disagrees" once matched the consent rule and silently dropped
+ * an entire screening question.
+ */
+const MAX_METADATA_HEADER_LENGTH = 80
+
+/** True when a header is metadata rather than a screening answer. */
+export function isNoiseColumn(header: string): boolean {
+  const h = header.trim()
+  if (NOISE_EXACT.test(h)) return true
+  // Anything long enough to be a real question is never treated as metadata
+  if (h.length > MAX_METADATA_HEADER_LENGTH) return false
+  return NOISE_PHRASE.some(re => re.test(h))
 }
 
 function scoreHeader(header: string, rules: Rule[]): number {
@@ -239,9 +281,7 @@ export function identifyKeyColumns(headers: string[]): KeyColumns {
   const noticePeriodColumn = pick('noticePeriod')
   const locationColumn = pick('location')
 
-  const responseColumns = headers.filter(
-    h => !claimed.has(h) && !/timestamp|submission\s*(id|time)|^id$/i.test(h)
-  )
+  const responseColumns = headers.filter(h => !claimed.has(h) && !isNoiseColumn(h))
 
   return {
     nameColumn,
