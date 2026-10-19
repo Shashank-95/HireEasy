@@ -23,7 +23,7 @@ AI-powered recruiting automation platform that streamlines the entire hiring pip
 
 ### Windows
 
-1. Download **`HireEasy-Setup-1.0.1.exe`** from [Releases](https://github.com/Shashank-95/HireEasy/releases/latest)
+1. Download **`HireEasy.Setup.1.0.1.exe`** from [Releases](https://github.com/Shashank-95/HireEasy/releases/latest)
 2. Run the installer — if Windows Defender SmartScreen shows a warning:
    - Click **More info**
    - Click **Run anyway**
