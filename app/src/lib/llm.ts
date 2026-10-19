@@ -614,7 +614,7 @@ async function callLLM(prompt: string, settings: ReturnType<typeof useSettingsSt
 
   if (provider === 'gemini') {
     if (!settings.geminiKey) throw new Error('Gemini API key not configured')
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${settings.geminiKey}`, {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${settings.geminiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -643,10 +643,13 @@ async function callLLM(prompt: string, settings: ReturnType<typeof useSettingsSt
         'Authorization': `Bearer ${settings.groqKey}`,
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-120b',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
         response_format: { type: 'json_object' },
+        // Reasoning model — keep effort low for speed and leave reasoning out of the response
+        reasoning_effort: 'low',
+        include_reasoning: false,
       }),
     })
     if (!res.ok) {

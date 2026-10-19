@@ -57,8 +57,8 @@ export default function Settings() {
   const settings = useSettingsStore()
 
   const llmOptions: { value: LlmProvider; label: string; description: string; badge?: 'FREE' | 'PAID' }[] = [
-    { value: 'gemini', label: 'Google Gemini', description: 'Gemini 2.0 Flash · 1,500 requests/day', badge: 'FREE' },
-    { value: 'groq', label: 'Groq', description: 'Llama 3.3 70B · 6,000 requests/day · 10x faster', badge: 'FREE' },
+    { value: 'gemini', label: 'Google Gemini', description: 'Gemini 3.5 Flash-Lite · ~500 requests/day', badge: 'FREE' },
+    { value: 'groq', label: 'Groq', description: 'GPT-OSS 120B · 1,000 requests/day · fastest', badge: 'FREE' },
     { value: 'openai', label: 'OpenAI', description: 'GPT-4o-mini · usage-based pricing', badge: 'PAID' },
     { value: 'anthropic', label: 'Anthropic Claude', description: 'Claude · usage-based pricing', badge: 'PAID' },
   ]
