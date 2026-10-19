@@ -160,6 +160,14 @@ export interface Job {
   columnMapping?: ColumnMapping
   /** Percentile cutoff chosen at L1 */
   l1PercentileCutoff?: number
+  /**
+   * Withhold identity and pedigree signals from the AI at L1 and L2: pedigree
+   * answer columns (see PEDIGREE_COLUMN), the candidate's name, and contact
+   * details inside resumes. They stay fully visible in the UI — only the model is blinded.
+   */
+  blindScreening?: boolean
+  /** Repeat applications collapsed at import, kept for the audit trail */
+  dedupeSummary?: { removed: number; byEmail: number; byPhone: number }
 }
 
 interface JobStore {

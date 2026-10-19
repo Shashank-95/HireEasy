@@ -1,8 +1,8 @@
 import { useState, useRef, useMemo } from 'react'
-import { FileText, Upload, CheckCircle2, X, File, Type, SlidersHorizontal, AlertTriangle, Info } from 'lucide-react'
+import { FileText, Upload, CheckCircle2, X, File, Type, SlidersHorizontal, AlertTriangle, Info, EyeOff } from 'lucide-react'
 import { Job, ScreeningCriteria, DEFAULT_CRITERIA, useJobStore } from '../../../stores/jobStore'
 import { extractTextFromPdf } from '../../../lib/pdfParser'
-import { evaluateCriteria, FILTER_LABELS } from '../../../lib/screeningFilters'
+import { evaluateCriteria, FILTER_LABELS, PEDIGREE_COLUMN } from '../../../lib/screeningFilters'
 import { formatCtc, formatExperience, formatNotice } from '../../../lib/candidateParsing'
 
 interface Props {
@@ -63,6 +63,12 @@ export default function StepJobDescription({ job, onNext }: Props) {
     }
     return { failing, passing: job.candidates.length - failing, byRule }
   }, [criteria, job.candidates])
+
+  /** Which answer columns blind screening would hide from the model. */
+  const blindedColumns = useMemo(
+    () => (job.columnMapping?.responseColumns || []).filter(c => PEDIGREE_COLUMN.test(c)),
+    [job.columnMapping]
+  )
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0]
@@ -484,6 +490,62 @@ export default function StepJobDescription({ job, onNext }: Props) {
                   </p>
                 )}
               </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ---------- Blind screening ---------- */}
+      <div className="glass-card p-6">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
+              <EyeOff size={18} className="text-violet-400" />
+            </div>
+            <div>
+              <h3 className="font-medium text-white">Blind Screening</h3>
+              <p className="text-xs text-white/40">
+                Withhold identity and pedigree signals from the AI — you still see everything
+              </p>
+            </div>
+          </div>
+          <button
+            role="switch"
+            aria-checked={!!job.blindScreening}
+            aria-label="Blind screening"
+            onClick={() => updateJob(job.id, { blindScreening: !job.blindScreening })}
+            className={`relative w-11 h-6 rounded-full transition-colors shrink-0 mt-1 ${
+              job.blindScreening ? 'bg-violet-500' : 'bg-white/[0.1]'
+            }`}
+          >
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+              job.blindScreening ? 'translate-x-[22px]' : 'translate-x-0.5'
+            }`} />
+          </button>
+        </div>
+
+        {job.blindScreening && (
+          <div className="mt-4 space-y-3">
+            <p className="text-xs text-white/50 leading-relaxed">
+              Answers about college, degree, nationality, gender or age are removed from the AI prompt at
+              L1 and L2, along with the candidate's name and their resume contact details. The model scores
+              only demonstrated capability — you keep full visibility in the candidate view.
+            </p>
+            {blindedColumns.length > 0 ? (
+              <div>
+                <p className="text-[11px] text-white/30 mb-1.5">Hidden from the AI in this sheet:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {blindedColumns.map(c => (
+                    <span key={c} className="px-2 py-1 rounded-md text-[11px] bg-violet-500/10 border border-violet-500/20 text-violet-300/80">
+                      {c.length > 50 ? c.slice(0, 50) + '…' : c}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-white/25">
+                No pedigree columns detected in this sheet — nothing extra to hide.
+              </p>
             )}
           </div>
         )}

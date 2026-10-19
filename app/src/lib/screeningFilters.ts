@@ -146,6 +146,89 @@ export function buildFingerprintIndex(candidates: Candidate[]): Map<string, numb
   return index
 }
 
+/**
+ * Answer columns that leak pedigree or identity rather than capability.
+ * Withheld from the model prompt when blind screening is on.
+ *
+ * Every term is anchored on a word boundary: unanchored "age" matched inside
+ * "manage" / "leverage", which would have silently hidden real skill answers.
+ * "degree" is skipped in "to what degree…" phrasing for the same reason.
+ *
+ * Kept here rather than in the store so it stays a pure constant — importing it
+ * shouldn't drag in IndexedDB.
+ */
+export const PEDIGREE_COLUMN = new RegExp(
+  [
+    // Education pedigree
+    String.raw`\binstitut`,
+    String.raw`\bcolleges?\b`,
+    String.raw`\buniversit`,
+    String.raw`\bschool`,
+    String.raw`\balma\s*mater\b`,
+    String.raw`\bgraduat`,
+    String.raw`(?<!\b(?:what|which|some|a|high|great|certain|large|any|varying)\s)\bdegrees?\b`,
+    String.raw`\bqualifications?\b`,
+    String.raw`\bc?gpa\b`,
+    String.raw`\bpass(?:ing|ed)?[\s-]*out\b`,
+    // Origin and protected characteristics
+    String.raw`\bwhich country\b`,
+    String.raw`\bnationality\b`,
+    String.raw`\bcitizenship\b`,
+    String.raw`\bhometown\b`,
+    String.raw`\bwhere are you from\b`,
+    String.raw`\bgender\b`,
+    String.raw`\bage\b`,
+    String.raw`\bdate of birth\b`,
+    String.raw`\bdob\b`,
+    String.raw`\bcaste\b`,
+    String.raw`\breligio`,
+    String.raw`\bethnic`,
+    String.raw`\bmarital\b`,
+    String.raw`\bdisabilit`,
+    String.raw`\b(?:photo|photograph|picture)\b`,
+  ].join('|'),
+  'i',
+)
+
+/**
+ * The answers to send to the model. With blind screening on, pedigree columns
+ * are dropped — the recruiter still sees every answer in the UI.
+ */
+export function modelVisibleAnswers(
+  responses: Record<string, string>,
+  blind: boolean | undefined,
+): [string, string][] {
+  return Object.entries(responses).filter(
+    ([q, a]) => a.trim().length > 0 && !(blind && PEDIGREE_COLUMN.test(q))
+  )
+}
+
+export const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Strips the candidate's own name, email and phone out of free text (a resume)
+ * before it reaches the model under blind screening. Institutions named inside
+ * a resume are left alone — removing them would gut the work history.
+ */
+export function redactIdentity(
+  text: string,
+  who: { name?: string },
+): string {
+  let out = text
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '[email]')
+    // Phone shapes only (98765 43210, 987-654-3210, +91…) — a looser digit run
+    // would also eat resume date ranges like "2018 - 2020 2021"
+    .replace(/(?<![\w+])(?:\+\d{1,3}[\s-]?)?(?:\d{5}[\s-]?\d{5}|\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4})(?!\d)/g, '[phone]')
+
+  const nameParts = (who.name || '')
+    .split(/\s+/)
+    .filter(p => p.length >= 3 && p.toLowerCase() !== 'unknown')
+  for (const part of nameParts) {
+    out = out.replace(new RegExp(`\\b${escapeRegExp(part)}\\b`, 'gi'), '[candidate]')
+  }
+  return out
+}
+
 /** Friendly labels for filter keys, used in the results UI. */
 export const FILTER_LABELS: Record<string, string> = {
   ctc: 'Over budget',

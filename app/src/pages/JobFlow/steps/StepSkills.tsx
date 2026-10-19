@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
-import { Plus, X, GripVertical, Sliders, AlertCircle, Sparkles, Loader2, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { Plus, X, GripVertical, Sliders, AlertCircle, Sparkles, Loader2, RefreshCw, SearchX } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { Job, Skill, useJobStore } from '../../../stores/jobStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { extractSkillsFromJD } from '../../../lib/llm'
+import { analyseSkillEvidence, rebalanceToEvidenced } from '../../../lib/skillEvidence'
 import { v4 as uuidv4 } from 'uuid'
 
 interface Props {
@@ -43,7 +44,7 @@ function SkillRow({ skill, onUpdate, onRemove }: { skill: Skill; onUpdate: (data
   )
 }
 
-function SkillSection({ title, subtitle, skills, type, required, showWarning, onAdd, onUpdate, onRemove }: {
+function SkillSection({ title, subtitle, skills, required, showWarning, onAdd, onUpdate, onRemove }: {
   title: string
   subtitle: string
   skills: Skill[]
@@ -196,6 +197,25 @@ export default function StepSkills({ job, onNext }: Props) {
   const namedNonTech = nonTechSkills.filter(s => s.name.trim())
   const namedBehavioral = behavioralSkills.filter(s => s.name.trim())
 
+  /**
+   * Can these skills actually be observed in the screening answers?
+   * A JD may demand SQL, but if no question asks about SQL then every candidate
+   * scores ~0 on it — a constant, not a signal, that just compresses the range.
+   */
+  const evidence = useMemo(
+    () => analyseSkillEvidence([...namedTech, ...namedNonTech, ...namedBehavioral], job.candidates),
+    [techSkills, nonTechSkills, behavioralSkills, job.candidates]
+  )
+
+  const underEvidenced = evidence?.perSkill.filter(e => e.underEvidenced) || []
+
+  const applyRebalance = () => {
+    if (!evidence) return
+    setTechSkills(rebalanceToEvidenced(techSkills, evidence).filter(s => s.weight > 0 || !s.name.trim()))
+    setNonTechSkills(rebalanceToEvidenced(nonTechSkills, evidence).filter(s => s.weight > 0 || !s.name.trim()))
+    setBehavioralSkills(rebalanceToEvidenced(behavioralSkills, evidence).filter(s => s.weight > 0 || !s.name.trim()))
+  }
+
   const techTotal = namedTech.reduce((a, s) => a + s.weight, 0)
   const nonTechTotal = namedNonTech.reduce((a, s) => a + s.weight, 0)
   const behavioralTotal = namedBehavioral.reduce((a, s) => a + s.weight, 0)
@@ -290,6 +310,58 @@ export default function StepSkills({ job, onNext }: Props) {
           <AlertCircle size={14} className="text-amber-400 shrink-0" />
           <p className="text-xs text-amber-400">{extractError}</p>
         </div>
+      )}
+
+      {/* Skill-evidence check — can these skills be scored from the answers? */}
+      {underEvidenced.length > 0 && evidence && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl bg-amber-500/[0.06] border border-amber-500/25 overflow-hidden"
+        >
+          <div className="p-4">
+            <div className="flex items-start gap-3">
+              <SearchX size={16} className="text-amber-400 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-200">
+                  {underEvidenced.length} skill{underEvidenced.length > 1 ? 's' : ''} can't be assessed from your screening questions
+                </p>
+                <p className="text-xs text-white/50 mt-1 leading-relaxed">
+                  Your screening questions don't surface evidence for these, so nearly every candidate
+                  will score the same near-zero on them. That's {evidence.wastedWeight}% of your rubric
+                  producing no differentiation — it dilutes the signal from the skills you <em>can</em> measure.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-1.5 pl-7">
+              {underEvidenced.map(e => (
+                <div key={e.skill.id} className="flex items-center gap-3">
+                  <span className="text-xs text-white/70 w-40 truncate">{e.skill.name}</span>
+                  <span className="text-[11px] text-amber-400/80 w-16">{e.skill.weight}% weight</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-white/[0.05] overflow-hidden max-w-[140px]">
+                    <div className="h-full bg-amber-500/60 rounded-full" style={{ width: `${Math.max(2, e.coverage * 100)}%` }} />
+                  </div>
+                  <span className="text-[11px] text-white/30 w-28">
+                    in {Math.round(e.coverage * 100)}% of answers
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 mt-4 pl-7">
+              <button
+                onClick={applyRebalance}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-200 transition-all"
+              >
+                Move this weight to measurable skills
+              </button>
+              <span className="text-[11px] text-white/25">
+                or assess them at L2 / interview instead
+              </span>
+            </div>
+          </div>
+        </motion.div>
       )}
 
       <SkillSection

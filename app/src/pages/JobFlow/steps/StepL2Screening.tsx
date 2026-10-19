@@ -5,6 +5,7 @@ import { Job, Candidate, useJobStore } from '../../../stores/jobStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { analyzeResume } from '../../../lib/llm'
 import { downloadResume } from '../../../lib/google'
+import { modelVisibleAnswers, redactIdentity } from '../../../lib/screeningFilters'
 
 interface Props {
   job: Job
@@ -78,13 +79,17 @@ export default function StepL2Screening({ job, onNext }: Props) {
           }
         }
 
-        const responsesSummary = Object.entries(candidate.responses)
-          .filter(([, v]) => v.trim().length > 0)
+        // Blind screening carries through to L2: no name, no pedigree answers,
+        // and the resume's own contact details are redacted
+        const blind = !!job.blindScreening
+        if (blind && resumeContent) resumeContent = redactIdentity(resumeContent, candidate)
+
+        const responsesSummary = modelVisibleAnswers(candidate.responses, blind)
           .map(([q, a]) => `${q}: ${a}`)
           .join('\n\n')
 
         const profile = [
-          `Candidate: ${candidate.name}`,
+          blind ? '' : `Candidate: ${candidate.name}`,
           candidate.experienceYears !== undefined ? `Experience: ${candidate.experienceYears} years` : '',
           candidate.l1Score ? `L1 screening score: ${candidate.l1Score}/100` : '',
           candidate.screeningDetail?.summary ? `L1 assessment: ${candidate.screeningDetail.summary}` : '',

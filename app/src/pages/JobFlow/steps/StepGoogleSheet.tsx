@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../../stores/settingsStore'
 import { authenticateGoogle, parseGoogleSheet } from '../../../lib/google'
 import { parseSheetData, identifyKeyColumns, isNoiseColumn } from '../../../lib/googleSheets'
 import { parseCtcToLPA, parseExperienceYears, parseNoticePeriodDays, formatCtc, formatExperience, formatNotice } from '../../../lib/candidateParsing'
+import { dedupeCandidates } from '../../../lib/dedupe'
 import { v4 as uuidv4 } from 'uuid'
 
 interface Props {
@@ -138,14 +139,22 @@ export default function StepGoogleSheet({ job, onNext }: Props) {
       }
     })
 
+    // Collapse repeat applications from the same person. Answer-level duplicate
+    // detection only catches copy-paste; the same candidate applying twice with
+    // reworded answers would otherwise burn a second AI call and take two slots.
+    const { unique, removed } = dedupeCandidates(candidates)
+    const byEmail = removed.filter(r => r.matchedOn === 'email').length
+    const byPhone = removed.filter(r => r.matchedOn === 'phone').length
+
     const finalMapping = { ...m, responseColumns }
     updateJob(job.id, {
       sheetUrl: sheetUrl.trim(),
       candidates: [],
       candidateCount: 0,
       columnMapping: finalMapping,
+      dedupeSummary: removed.length > 0 ? { removed: removed.length, byEmail, byPhone } : undefined,
     })
-    addCandidates(job.id, candidates)
+    addCandidates(job.id, unique)
     setMapping(finalMapping)
   }
 
@@ -264,9 +273,16 @@ export default function StepGoogleSheet({ job, onNext }: Props) {
                 <CheckCircle2 size={16} className="text-emerald-400" />
                 <h3 className="font-medium text-white">Sheet Parsed Successfully</h3>
               </div>
-              <div className="flex items-center gap-2 text-xs text-white/40">
-                <Users size={12} />
-                {job.candidates.length} candidates found
+              <div className="flex items-center gap-3 text-xs">
+                {job.dedupeSummary && (
+                  <span className="px-2 py-1 rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-300">
+                    {job.dedupeSummary.removed} repeat application{job.dedupeSummary.removed === 1 ? '' : 's'} merged
+                  </span>
+                )}
+                <span className="flex items-center gap-1.5 text-white/40">
+                  <Users size={12} />
+                  {job.candidates.length} unique candidates
+                </span>
               </div>
             </div>
 

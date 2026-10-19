@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Loader2, Brain, Shield, CheckCircle2, AlertTriangle, Filter, Clock, Zap, RotateCcw } from 'lucide-react'
+import { Loader2, Brain, CheckCircle2, AlertTriangle, Filter, Clock, Zap, RotateCcw } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { Job, Candidate, ScreeningDetail, DEFAULT_CRITERIA, useJobStore } from '../../../stores/jobStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { screenCandidate } from '../../../lib/llm'
 import { detectAiContent, heuristicAiDetection } from '../../../lib/aiDetection'
-import { evaluateCriteria, evaluateEffort, buildFingerprintIndex, FILTER_LABELS } from '../../../lib/screeningFilters'
+import { evaluateCriteria, evaluateEffort, buildFingerprintIndex, FILTER_LABELS, modelVisibleAnswers } from '../../../lib/screeningFilters'
 
 interface Props {
   job: Job
@@ -230,8 +230,9 @@ export default function StepL1Screening({ job, onNext }: Props) {
 
       await Promise.all(
         batch.map(async (candidate) => {
-          const responseText = Object.entries(candidate.responses)
-            .filter(([, v]) => v.trim().length > 0)
+          // Blind screening withholds pedigree/identity answers from the model.
+          // The recruiter still sees everything — only the prompt is blinded.
+          const responseText = modelVisibleAnswers(candidate.responses, job.blindScreening)
             .map(([q, a]) => `Q: ${q}\nA: ${a}`)
             .join('\n\n')
 

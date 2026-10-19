@@ -18,7 +18,12 @@ import {
   evaluateCriteria,
   evaluateEffort,
   buildFingerprintIndex,
+  PEDIGREE_COLUMN,
+  modelVisibleAnswers,
+  redactIdentity,
 } from '../screeningFilters.ts'
+import { dedupeCandidates } from '../dedupe.ts'
+import { analyseSkillEvidence, rebalanceToEvidenced } from '../skillEvidence.ts'
 import { identifyKeyColumns, isNoiseColumn } from '../googleSheets.ts'
 
 let failures = 0
@@ -214,6 +219,169 @@ check('detect notice', detected.noticePeriodColumn, 'How soon can you join? ')
 check('detect country as location', detected.locationColumn, 'Which Country are you applying from?')
 check('screening question survives filtering', detected.responseColumns.includes(longQuestion), true)
 check('token excluded from AI input', detected.responseColumns.includes('Token'), false)
+
+// ─────────────── Identity dedupe ───────────────
+const mkc = (id, name, email, phone) => ({
+  id, jobId: 'j', name, email, phone,
+  responses: { q: 'answer '.repeat(40) }, status: 'applied', shortlistLevel: 0,
+})
+
+const deduped = dedupeCandidates([
+  mkc('1', 'Chirayu Paliwal', 'chirayu@gmail.com', '9111111111'),
+  mkc('2', 'Chirayu Paliwalk', 'chirayu@gmail.com', '9111111111'),  // same person, typo'd name
+  mkc('3', 'Someone Else', 'other@gmail.com', '9222222222'),
+])
+check('dedupe collapses repeat email', deduped.unique.length, 2)
+check('dedupe keeps the later submission', deduped.unique[0].name, 'Chirayu Paliwalk')
+check('dedupe records the match reason', deduped.removed[0].matchedOn, 'email')
+
+// Gmail dots and +tags address the same inbox
+const gmailVariants = dedupeCandidates([
+  mkc('1', 'A', 'first.last@gmail.com', ''),
+  mkc('2', 'B', 'firstlast+jobs@gmail.com', ''),
+])
+check('dedupe normalises gmail dots and +tags', gmailVariants.unique.length, 1)
+// ...but only for Gmail — other providers treat dots as significant
+const otherProvider = dedupeCandidates([
+  mkc('1', 'A', 'first.last@company.com', ''),
+  mkc('2', 'B', 'firstlast@company.com', ''),
+])
+check('dedupe keeps non-gmail dots distinct', otherProvider.unique.length, 2)
+
+// Different email, same phone — still one person
+const samePhone = dedupeCandidates([
+  mkc('1', 'A', 'a@x.com', '+91 98123 45678'),
+  mkc('2', 'A', 'b@x.com', '098123 45678'),
+])
+check('dedupe matches on phone across email change', samePhone.unique.length, 1)
+check('two genuinely distinct people survive', dedupeCandidates([
+  mkc('1', 'A', 'a@x.com', '9111111111'),
+  mkc('2', 'B', 'b@x.com', '9222222222'),
+]).unique.length, 2)
+
+// Placeholder phones typed to get past a required field are not identity
+check('placeholder phones never merge strangers', dedupeCandidates([
+  mkc('1', 'A', 'a@x.com', '0000000000'),
+  mkc('2', 'B', 'b@x.com', '0000000000'),
+  mkc('3', 'C', 'c@x.com', '1234567890'),
+  mkc('4', 'D', 'd@x.com', '1234567890'),
+  mkc('5', 'E', 'e@x.com', '+91 98765 43210'),
+  mkc('6', 'F', 'f@x.com', '9876543210'),
+]).unique.length, 6)
+check('placeholder emails never merge strangers', dedupeCandidates([
+  mkc('1', 'A', 'na@na.com', '9111111111'),
+  mkc('2', 'B', 'NA@na.com', '9222222222'),
+]).unique.length, 2)
+
+// A number shared by many different applicants is a placement cell, not a person
+check('shared contact number does not collapse a whole campus', dedupeCandidates([
+  mkc('1', 'A', 'a@x.com', '9333333331'),
+  mkc('2', 'B', 'b@x.com', '9333333331'),
+  mkc('3', 'C', 'c@x.com', '9333333331'),
+  mkc('4', 'D', 'd@x.com', '9333333331'),
+]).unique.length, 4)
+
+// Transitive: 1↔2 share an email, 2↔3 share a phone — one person, last row kept
+const chain = dedupeCandidates([
+  mkc('1', 'First', 'p@x.com', '9444444441'),
+  mkc('2', 'Second', 'p@x.com', '9555555551'),
+  mkc('3', 'Third', 'q@x.com', '9555555551'),
+])
+check('transitive repeats collapse to one', chain.unique.length, 1)
+check('transitive keeps the latest row', chain.unique[0].name, 'Third')
+check('every removed row points at the survivor', chain.removed.every(r => r.keptName === 'Third'), true)
+check('googlemail.com is the same inbox as gmail.com', dedupeCandidates([
+  mkc('1', 'A', 'first.last@googlemail.com', ''),
+  mkc('2', 'B', 'firstlast@gmail.com', ''),
+]).unique.length, 1)
+
+// ─────────────── Skill evidence ───────────────
+// The failure this guards: a JD demands SQL, so it gets 30% of the rubric — but
+// no screening question asks about SQL, so every candidate scores ~0 on it.
+// That's a constant, not a signal.
+const pmAnswers = [
+  'I would triage the uninstall spike first, pull the funnel data and check retention cohorts before drafting the PRD.',
+  'I would quantify demand using analytics rather than social noise, then run an experiment with a clear success metric.',
+  'I would use Claude to cluster the reviews into themes and validate the top three against our retention data.',
+]
+const asCandidates = pmAnswers.map((a, i) => ({
+  id: String(i), jobId: 'j', name: 'C' + i,
+  responses: { scenario: a }, status: 'applied', shortlistLevel: 0,
+}))
+
+const skillSet = [
+  { id: 's1', name: 'SQL', weight: 30, type: 'technical' },
+  { id: 's2', name: 'Python', weight: 20, type: 'technical' },
+  { id: 's3', name: 'Data Analysis', weight: 25, type: 'technical' },
+  { id: 's4', name: 'AI Tools', weight: 25, type: 'technical' },
+]
+const report = analyseSkillEvidence(skillSet, asCandidates)
+const bySkill = Object.fromEntries(report.perSkill.map(p => [p.skill.name, p]))
+check('SQL flagged as unmeasurable', bySkill['SQL'].underEvidenced, true)
+check('Python flagged as unmeasurable', bySkill['Python'].underEvidenced, true)
+check('Data Analysis is measurable', bySkill['Data Analysis'].underEvidenced, false)
+check('AI Tools is measurable', bySkill['AI Tools'].underEvidenced, false)
+check('wasted weight is summed', report.wastedWeight, 50)
+
+// Rebalancing must move weight onto measurable skills and still total 100
+const rebalanced = rebalanceToEvidenced(skillSet, report)
+check('rebalanced total is exactly 100', rebalanced.reduce((s, x) => s + x.weight, 0), 100)
+check('unmeasurable skill drops to 0', rebalanced.find(s => s.name === 'SQL').weight, 0)
+check('measurable skill gains weight', rebalanced.find(s => s.name === 'Data Analysis').weight > 25, true)
+
+// A low-weight skill isn't worth warning about even if unevidenced
+const minorSkill = analyseSkillEvidence(
+  [{ id: 'm', name: 'Kubernetes', weight: 5, type: 'technical' }], asCandidates)
+check('low-weight unevidenced skill not flagged', minorSkill.perSkill[0].underEvidenced, false)
+
+// Short terms must match whole words: "ai" lives inside said / maintain / explain,
+// and "Attention to Detail" must not inherit the AI synonyms via "det-ai-l"
+const noAiAnswers = ['I said we should maintain the main funnel and explain the trade-off in detail.']
+  .map((a, i) => ({ id: String(i), jobId: 'j', name: 'N' + i, responses: { q: a }, status: 'applied', shortlistLevel: 0 }))
+const aiProbe = analyseSkillEvidence([
+  { id: 'a', name: 'AI Tools', weight: 40, type: 'technical' },
+  { id: 'd', name: 'Attention to Detail', weight: 30, type: 'behavioral' },
+  { id: 'p', name: 'Product Sense', weight: 30, type: 'nontech' },
+], noAiAnswers)
+const aiBy = Object.fromEntries(aiProbe.perSkill.map(p => [p.skill.name, p]))
+check('"ai" inside ordinary words is not AI evidence', aiBy['AI Tools'].underEvidenced, true)
+check('Attention to Detail matched on its own words', aiBy['Attention to Detail'].underEvidenced, false)
+check('synonyms still apply on whole-word keys (Product Sense ← trade-off)', aiBy['Product Sense'].underEvidenced, false)
+
+// ─────────────── Blind screening ───────────────
+check('institute column is pedigree', PEDIGREE_COLUMN.test('Name of Institute, Course & Passing out year.'), true)
+check('country column is pedigree', PEDIGREE_COLUMN.test('Which Country are you applying from?'), true)
+check('scenario question is NOT pedigree', PEDIGREE_COLUMN.test(longQuestion), false)
+check('CTC column is NOT pedigree', PEDIGREE_COLUMN.test('Expected Salary/Pay (annual)'), false)
+
+// Unanchored "age" matched inside manage / leverage / engage — real skill questions
+;[
+  'How do you manage stakeholders who disagree?',
+  'How would you leverage data to prioritise the roadmap?',
+  'How would you engage users in the first week?',
+  'To what degree did you own the roadmap?',
+  'Describe the image recognition feature you shipped',
+].forEach(q => check(`skill question kept: ${q}`, PEDIGREE_COLUMN.test(q), false))
+;[
+  'Highest Degree',
+  'Age',
+  'Your CGPA',
+  'Date of Birth',
+  'Graduation Year',
+  'Passing out year',
+  'Gender',
+].forEach(q => check(`pedigree column hidden: ${q}`, PEDIGREE_COLUMN.test(q), true))
+
+const blindAnswers = { 'Name of Institute': 'IIT Delhi', 'How do you manage stakeholders?': 'I align early.', 'Empty': '  ' }
+check('blind off sends every non-empty answer', modelVisibleAnswers(blindAnswers, false).length, 2)
+check('blind on drops pedigree answers', modelVisibleAnswers(blindAnswers, true).map(([q]) => q).join('|'), 'How do you manage stakeholders?')
+
+const resume = 'Chirayu Paliwal | chirayu.p@gmail.com | +91 98765 43210\nPM at Acme (2018 - 2020 2021 - 2023). Chirayu led growth.'
+const redacted = redactIdentity(resume, { name: 'Chirayu Paliwal' })
+check('resume name redacted', /chirayu|paliwal/i.test(redacted), false)
+check('resume email redacted', redacted.includes('@'), false)
+check('resume phone redacted', redacted.includes('98765'), false)
+check('resume date ranges survive redaction', redacted.includes('2018 - 2020 2021 - 2023'), true)
 
 console.log(
   failures === 0
