@@ -79,8 +79,10 @@
       "electron/**/*",
       "dist/**/*",
       "prisma/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/canvas/**/*"
     ],
+    "npmRebuild": false,
     "asar": true,
     "mac": {
       "target": [
