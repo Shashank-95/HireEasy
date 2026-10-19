@@ -6,7 +6,7 @@ AI-powered recruiting automation platform that streamlines the entire hiring pip
 
 ### Mac (Apple Silicon — M1/M2/M3/M4)
 
-1. Download **`HireEasy-1.0.0-arm64.dmg`** from [Releases](https://github.com/Shashank-95/HireEasy/releases/latest)
+1. Download **`HireEasy-1.0.1-arm64.dmg`** from [Releases](https://github.com/Shashank-95/HireEasy/releases/latest)
 2. Open the `.dmg` file
 3. Drag **HireEasy** into the **Applications** folder
 4. Open **HireEasy** from Applications
@@ -18,12 +18,12 @@ AI-powered recruiting automation platform that streamlines the entire hiring pip
 
 ### Mac (Intel)
 
-1. Download **`HireEasy-1.0.0.dmg`** from [Releases](https://github.com/Shashank-95/HireEasy/releases/latest)
+1. Download **`HireEasy-1.0.1.dmg`** from [Releases](https://github.com/Shashank-95/HireEasy/releases/latest)
 2. Follow the same steps as above (steps 2-5)
 
 ### Windows
 
-1. Download **`HireEasy-Setup-1.0.0.exe`** from [Releases](https://github.com/Shashank-95/HireEasy/releases/latest)
+1. Download **`HireEasy-Setup-1.0.1.exe`** from [Releases](https://github.com/Shashank-95/HireEasy/releases/latest)
 2. Run the installer — if Windows Defender SmartScreen shows a warning:
    - Click **More info**
    - Click **Run anyway**
