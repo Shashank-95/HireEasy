@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+/* Design tokens — every colour in the app comes from here */
+:root {
+  --bg: #f6f6f8;
+  --surface: #ffffff;
+  --surface-2: #f1f1f4;
+  --border: #e4e4ea;
+  --text: #16161d;
+  --muted: #676776;
+  --faint: #737382;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  /* Filled buttons and bubbles under white text (links use --accent) */
+  --accent-solid: #4f46e5;
+  --accent-solid-hover: #4338ca;
+  --accent-soft: #eef0ff;
+  --accent-text: #3730a3;
+  --success: #15803d;
+  --success-soft: #e9f8ef;
+  --warn: #b45309;
+  --warn-soft: #fff6e5;
+  --danger: #b91c1c;
+  --danger-soft: #fdecec;
+  --info: #0369a1;
+  --info-soft: #e8f4fb;
+  --ring: rgb(79 70 229 / 0.35);
+  --shadow: 0 1px 2px rgb(16 16 30 / 0.04), 0 1px 3px rgb(16 16 30 / 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d0d12;
+    --surface: #15151c;
+    --surface-2: #1c1c25;
+    --border: #2a2a36;
+    --text: #ececf2;
+    --muted: #a0a0b0;
+    --faint: #82829a;
+    --accent: #7c74ff;
+    --accent-hover: #918aff;
+    --accent-solid: #5d54ea;
+    --accent-solid-hover: #5148dc;
+    --accent-soft: #23214a;
+    --accent-text: #c7c3ff;
+    --success: #4ade80;
+    --success-soft: #11291b;
+    --warn: #fbbf24;
+    --warn-soft: #2d2410;
+    --danger: #f87171;
+    --danger-soft: #331617;
+    --info: #38bdf8;
+    --info-soft: #0f2533;
+    --ring: rgb(124 116 255 / 0.4);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-solid-hover: var(--accent-solid-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent-soft);
+}

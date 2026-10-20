@@ -227,12 +227,12 @@ const mkc = (id, name, email, phone) => ({
 })
 
 const deduped = dedupeCandidates([
-  mkc('1', 'Chirayu Paliwal', 'chirayu@gmail.com', '9111111111'),
-  mkc('2', 'Chirayu Paliwalk', 'chirayu@gmail.com', '9111111111'),  // same person, typo'd name
+  mkc('1', 'Kabir Seth', 'kabir.seth.qa@gmail.com', '9111111111'),
+  mkc('2', 'Kabir Sethh', 'kabir.seth.qa@gmail.com', '9111111111'),  // same person, typo'd name
   mkc('3', 'Someone Else', 'other@gmail.com', '9222222222'),
 ])
 check('dedupe collapses repeat email', deduped.unique.length, 2)
-check('dedupe keeps the later submission', deduped.unique[0].name, 'Chirayu Paliwalk')
+check('dedupe keeps the later submission', deduped.unique[0].name, 'Kabir Sethh')
 check('dedupe records the match reason', deduped.removed[0].matchedOn, 'email')
 
 // Gmail dots and +tags address the same inbox
@@ -376,9 +376,9 @@ const blindAnswers = { 'Name of Institute': 'IIT Delhi', 'How do you manage stak
 check('blind off sends every non-empty answer', modelVisibleAnswers(blindAnswers, false).length, 2)
 check('blind on drops pedigree answers', modelVisibleAnswers(blindAnswers, true).map(([q]) => q).join('|'), 'How do you manage stakeholders?')
 
-const resume = 'Chirayu Paliwal | chirayu.p@gmail.com | +91 98765 43210\nPM at Acme (2018 - 2020 2021 - 2023). Chirayu led growth.'
-const redacted = redactIdentity(resume, { name: 'Chirayu Paliwal' })
-check('resume name redacted', /chirayu|paliwal/i.test(redacted), false)
+const resume = 'Kabir Seth | kabir.s@example.com | +91 98765 43210\nPM at Acme (2018 - 2020 2021 - 2023). Kabir led growth.'
+const redacted = redactIdentity(resume, { name: 'Kabir Seth' })
+check('resume name redacted', /kabir|seth/i.test(redacted), false)
 check('resume email redacted', redacted.includes('@'), false)
 check('resume phone redacted', redacted.includes('98765'), false)
 check('resume date ranges survive redaction', redacted.includes('2018 - 2020 2021 - 2023'), true)
